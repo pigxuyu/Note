@@ -20,6 +20,7 @@
 ## Presto的设计
 #### 架构设计
 ![presto架构.png](images/presto_architecture.png)
+
 Presto包括Coordinator（包括元数据管理模块、SQL解析模块和分布式任务调度模块）、Worker（包括任务执行模块和Connector模块等）和客户端（包括jdbc和http两种连接方式）。主要模块具体功能和职责为：
 
 **元数据管理模块：** 通过对不同底层数据存储引擎的API动态调用，映射到Presto内部的库表schema信息。
@@ -30,6 +31,7 @@ Presto包括Coordinator（包括元数据管理模块、SQL解析模块和分布
 * 通过目前流行的语言识别工具ANTLR4来构建词法分析器、语法分析器和树状分析器等各个模块，sql语句根据分词规则及语法规则组装成抽象语法树（AST）。
 * 语义分析器主要用来绑定元数据，通过visitor模式遍历AST，将树种的表、字段绑定具体的元数据信息。例如某个字段A，绑定它关联的表，字段类型等。
 * 执行计划生成负责将语义分析后的AST，转成逻辑执行计划，区分SQL不同语义，执行不同的逻辑操作。例如两表join操作转成逻辑执行计划如下图。执行计划优化是对执行计划优化的功能，例如外层语句的查询过滤条件，有些情况可以下推到具体的源表查询逻辑中，以减少数据量的获取，提高查询效率。优化规则可以在 PlanOptimizers和IterativeOptimizer找到。规则分两类，第一类都是通过 visitor 模式来对树进行改写；第二类的规则都是通过 pattern match 来触发。
+
 ![presto执行计划.png](images/presto_plantree.png)
 * 执行计划分段的最重要目的就是能够以分片(splited)方式运输和执行在分布式节点上。分布式sql引擎相比于传统数据库引擎最大的区别之一就是并发度理论上可以无限横向扩展。例如上图中两个query plan的ProjectNode水平拆分到不同worker节点上运行，其它worker节点上通过网络传输拉取数据执行JoinNode的关联操作。
 
