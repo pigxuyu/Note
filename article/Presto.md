@@ -8,7 +8,7 @@
 * 数据查询来源于不同的部分和系统，不方便数据侧的统计及管理。
 
 为了解决上述遇到的各类问题，同时参考了业界其他公司的大数据解决方案，我们调研了多个查询引擎，考虑到后续的定制化需求，最终选择Presto来实现数据查询服务。Presto以下特性能够满足我们的需求：
-![3d81fdfa1db15b3b996058c1cd1f1ecb.png](en-resource://database/1606:1)
+![presto特性.png](images/presto_speciality.png)
 
 本文将介绍Presto的系统设计以及在AI营销平台的落地情况，内容包括：
 
@@ -19,18 +19,18 @@
 
 ## Presto的设计
 #### 架构设计
-![66cfb96239174979a8c34b8d151ae270.png](en-resource://database/1608:1)
+![presto架构.png](images/presto_architecture.png)
 Presto包括Coordinator（包括元数据管理模块、SQL解析模块和分布式任务调度模块）、Worker（包括任务执行模块和Connector模块等）和客户端（包括jdbc和http两种连接方式）。主要模块具体功能和职责为：
 
 **元数据管理模块：** 通过对不同底层数据存储引擎的API动态调用，映射到Presto内部的库表schema信息。
 
 **SQL解析模块模块：** 对一条查询语句依次进行词法分析、语法分析、语义分析、执行计划生成、执行计划优化、执行计划分段的处理流程，如下图： 
-![7e240826cd2c7d907e45e79ee697bc49.png](en-resource://database/1610:1)
+![presto SQL解析.png](images/presto_sqlparser.png)
 
 * 通过目前流行的语言识别工具ANTLR4来构建词法分析器、语法分析器和树状分析器等各个模块，sql语句根据分词规则及语法规则组装成抽象语法树（AST）。
 * 语义分析器主要用来绑定元数据，通过visitor模式遍历AST，将树种的表、字段绑定具体的元数据信息。例如某个字段A，绑定它关联的表，字段类型等。
 * 执行计划生成负责将语义分析后的AST，转成逻辑执行计划，区分SQL不同语义，执行不同的逻辑操作。例如两表join操作转成逻辑执行计划如下图。执行计划优化是对执行计划优化的功能，例如外层语句的查询过滤条件，有些情况可以下推到具体的源表查询逻辑中，以减少数据量的获取，提高查询效率。优化规则可以在 PlanOptimizers和IterativeOptimizer找到。规则分两类，第一类都是通过 visitor 模式来对树进行改写；第二类的规则都是通过 pattern match 来触发。
-![429ff749c78fc079a5cb8b0369c6e137.png](en-resource://database/1612:1)
+![presto执行计划.png](images/presto_plantree.png)
 * 执行计划分段的最重要目的就是能够以分片(splited)方式运输和执行在分布式节点上。分布式sql引擎相比于传统数据库引擎最大的区别之一就是并发度理论上可以无限横向扩展。例如上图中两个query plan的ProjectNode水平拆分到不同worker节点上运行，其它worker节点上通过网络传输拉取数据执行JoinNode的关联操作。
 
 **SQL解析模块模块是Presto的核心部分，也是数据侧定制化重点修改部分**
@@ -47,10 +47,10 @@ Presto包括Coordinator（包括元数据管理模块、SQL解析模块和分布
 4. 针对UDF无法下推的情况，如何优化查询效率？
 
 为了解决上述问题，我们讨论了多种方式，决定采用MYSQL存储特定优化条件，并结合业务场景和需求，做了一些深度定制，最终解决方案如下：
-![e1b92dd46aaebbc2412aa4aae99a12ca.png](en-resource://database/1614:1)
+![解决方案.png](images/presto_program.png)
 
 **针对问题1：** Presto在查询底层表的时候，会拉取计算所需字段的全量数据。但是对于Druid这样的存储系统，即使有过滤条件下推的优化，依然会拉取大量数据。例如Druid一张表存放的最细粒度是分钟，如果直接按小时维度查询，Druid会自动聚合分钟数据为小时并返回，而Presto查询则拉取全量分钟数据进行计算。数据量过大不仅影响了Presto的执行效率，也没有充分利用Druid本身的计算性能。数据侧最终通过采用将sql下推的方案，将部分计算交由Druid执行，减少了拉取的数据量，提高计算效率。执行原理详见下图：
-![aa5868bda0c9fb63e5af0ff24d080b9f.png](en-resource://database/1616:1)
+![问题1.png](images/presto_problem1.png)
 ```
 例1 统计2019-07-11号当天物料的下发，曝光和点击数
 select img_url, sum(win), sum(impress), sum(click) from druid_table where __time between timestamp '2019-07-11 00:00:00' and timestamp '2019-07-11 23:59:59' group by img_url
